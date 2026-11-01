@@ -125,10 +125,39 @@ void receiveAuto()
   autoZ = std::atof(value_str.c_str());
 
   std::getline(stream, value_str, ',');
-  autoStepsX = (std::atof(value_str.c_str())/mm_per_click_x) * stepsPerClickX - autoStepsX;
+  autoStepsX = floor(std::atof(value_str.c_str())/mm_per_click_x) * stepsPerClickX - autoStepsX;
 
   std::getline(stream, value_str, ',');
-  autoStepsY = (std::atof(value_str.c_str())/mm_per_click_y) * stepsPerClickY - autoStepsY;
+  autoStepsY = floor(std::atof(value_str.c_str())/mm_per_click_y) * stepsPerClickY - autoStepsY;
+}
+
+//Function to send the interpreted command to the motor control sub-system.
+bool sendMotor()
+{
+  //First send data.
+  char buffer[64];
+  snprintf(buffer, sizeof(buffer), "%d, %.4f, %.4f", autoZ, autoStepsX, autoStepsY);
+  motorControl.println(String(buffer));
+
+  //Wait for done confirmation.
+  while(!(motorControl.available() > 0))
+  {
+  }
+
+  String received = motorControl.readStringUntil('\n');
+  received.trim();
+
+  std::istringstream stream(received.c_str());
+  std::string command;
+
+  std::getline(stream, command, ',');
+
+  if(command == "D")
+  {
+    return true;
+  }
+  
+  return false;
 }
 
 void setup() {
@@ -214,6 +243,6 @@ void loop() {
     receiveAuto();
 
     //Send command to motor subsystem.
-    //TODO...
+    sendMotor();
   }
 }
