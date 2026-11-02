@@ -121,10 +121,17 @@ void receiveAuto()
   while(!(cadInterpreter.available() > 0))
   {
     delay(1);
-    // cadInterpreter.println("waiting");
+    // Serial.println("waiting");
   }
 
   String received = cadInterpreter.readStringUntil('\n');
+  if(received[0] == 'D')
+  {
+    sending_auto = false;
+  }
+
+  // Serial.println(received);
+
   std::istringstream stream(received.c_str());
   std::string value_str;
 
@@ -235,7 +242,7 @@ void loop() {
     }
     else if(command == "A") //Check to see if we have initiated automatic mode.
     {
-      sending_auto = true;
+      sending_auto = !sending_auto;
     }
     else if(command == "M")
     {
