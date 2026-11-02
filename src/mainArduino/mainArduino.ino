@@ -26,11 +26,11 @@ HardwareSerial mainHub(0);
 const int mainHubRx = 0;
 const int mainHubTx = 0;
 
-HardwareSerial cadInterpreter(1);
-const int cadIntRx = 0;
-const int cadIntTx = 0;
+HardwareSerial cadInterpreter(2);
+const int cadIntRx = 16;
+const int cadIntTx = 17;
 
-HardwareSerial motorControl(2);
+HardwareSerial motorControl(1);
 const int motorContRx = 0;
 const int motorContTx = 0;
 
@@ -148,43 +148,43 @@ bool sendMotor(int z, int x, int y)
   //First send data.
   char buffer[64];
   snprintf(buffer, sizeof(buffer), "%d, %.4f, %.4f", autoZ, autoStepsX, autoStepsY);
-  motorControl.println(String(buffer));
+  // Serial.println(String(buffer));
 
   //Wait for done confirmation.
-  while(!(motorControl.available() > 0))
-  {
-    delay(1);
-  }
+  // while(!(Serial.available() > 0))
+  // {
+  //   delay(1);
+  // }
 
-  String received = motorControl.readStringUntil('\n');
-  received.trim();
+  // String received = Serial.readStringUntil('\n');
+  // received.trim();
 
-  std::istringstream stream(received.c_str());
-  std::string command;
+  // std::istringstream stream(received.c_str());
+  // std::string command;
 
-  std::getline(stream, command, ',');
+  // std::getline(stream, command, ',');
 
-  if(command == "D")
-  {
-    return true;
-  }
-  
+  // if(command == "D")
+  // {
+  //   return true;
+  // }
+  cadInterpreter.println("9, 0");
   return false;
 }
 
 void setup() {
   //Setup serial communication.
-  mainHub.begin(baudRateESP, SERIAL_8N1, mainHubRx, mainHubTx);
-  // Serial.begin(baudRateESP);
-  cadInterpreter.begin(baudRateESP, cadIntRx, cadIntTx);
-  motorControl.begin(baudRatePIC, motorContRx, motorContTx);
+  // mainHub.begin(baudRateESP, SERIAL_8N1, mainHubRx, mainHubTx);
+  Serial.begin(baudRateESP);
+  cadInterpreter.begin(baudRateESP, SERIAL_8N1, cadIntRx, cadIntTx);
+  // motorControl.begin(baudRatePIC, motorContRx, motorContTx);
 }
 
 void loop() {
   //Check for communcations from mainHub.
-  if(mainHub.available() > 0)
+  if(Serial.available() > 0)
   {
-    String received = mainHub.readStringUntil('\n');
+    String received = Serial.readStringUntil('\n');
     received.trim();
 
     std::istringstream stream(received.c_str());
@@ -239,7 +239,7 @@ void loop() {
     }
     else if(command == "M")
     {
-      moving_manually = true;
+      moving_manually = !moving_manually;
     }
   }
 
@@ -277,17 +277,21 @@ void loop() {
    if(cadInterpreter.available() > 0)
    {
       String received = cadInterpreter.readStringUntil('\n');
+      received.trim();
+
       std::istringstream stream(received.c_str());
       std::string value_str;
 
+      Serial.println(received);
 
-      std::getline(stream, value_str);
+      std::getline(stream, value_str, ',');
       stepsX = std::atof(value_str.c_str());
 
-      std::getline(stream, value_str);
+      std::getline(stream, value_str, ',');
       stepsY = std::atof(value_str.c_str());
+      sendMotor(0, stepsX, stepsY);
    } 
 
-    sendMotor(0, stepsX, stepsY);
+    // delay(500);
   }
 }
