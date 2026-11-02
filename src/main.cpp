@@ -22,25 +22,26 @@ bool yStateA = 0, yStateB = 0;
 
 //UART connects to other subsystems.
 HardwareSerial mainHub(0);
-const int mainHubRx = 0;
-const int mainHubTx = 0;
+// #define mainHub Serial;
+const int mainHubRx = 13;
+const int mainHubTx = 14;
 
-HardwareSerial cadInterpreter(1);
-const int cadIntRx = 0;
-const int cadIntTx = 0;
+HardwareSerial cadInterpreter(2);
+const int cadIntRx = 16;
+const int cadIntTx = 17;
 
-HardwareSerial motorControl(2);
-const int motorContRx = 0;
-const int motorContTx = 0;
+HardwareSerial motorControl(1);
+const int motorContRx = 18;
+const int motorContTx = 19;
 
 int baudRateESP = 115200;
 int baudRatePIC = 9600;
 
 //Calibration data.
-float mm_per_click_x = 1.7; //default value of 1
-float mm_per_click_y = 1.7; //default value of 1
-float boardWidth = 0; //in mm
-float boardHeight = 0; //in mm
+float mm_per_click_x = 0.18; //default value of 1
+float mm_per_click_y = 0.18; //default value of 1
+float boardWidth = 100; //in mm
+float boardHeight = 100; //in mm
 
 //State tracking variables.
 //Variables needed to track calibration state.
@@ -49,12 +50,16 @@ bool cal_width = false;
 bool cal_height = false;
 //Sending automatic coordinates.
 bool sending_auto = false;
+bool moving_manually = false;
 
 //Variables to keep track of automatic mode's commands to send (after they have been translated over to steps)
-int stepsPerClickX = 10;
-int stepsPerClickY = 10;
+int stepsPerClickX = 1;
+int stepsPerClickY = 1;
 float autoStepsX = 0;
 float autoStepsY = 0;
+
+float autoStepsVecX = 0;
+float autoStepsVecY = 0;
 bool autoZ = 0;
 
 //Function to determine which direction encoder turned, updating the state and click values.
@@ -115,9 +120,20 @@ void receiveAuto()
   //Wait until message is available.
   while(!(cadInterpreter.available() > 0))
   {
+    delay(1);
+    // Serial.println("waiting");
   }
 
   String received = cadInterpreter.readStringUntil('\n');
+  received.trim();
+  if(received[0] == 'D')
+  {
+    sending_auto = false;
+    return;
+  }
+
+  // Serial.println(received);
+
   std::istringstream stream(received.c_str());
   std::string value_str;
 
@@ -125,46 +141,49 @@ void receiveAuto()
   autoZ = std::atof(value_str.c_str());
 
   std::getline(stream, value_str, ',');
-  autoStepsX = floor(std::atof(value_str.c_str())/mm_per_click_x) * stepsPerClickX - autoStepsX;
+  float temp = floor(std::atof(value_str.c_str())/mm_per_click_x) * stepsPerClickX;
+  autoStepsVecX = temp - autoStepsX;
+  autoStepsX = temp;
 
   std::getline(stream, value_str, ',');
-  autoStepsY = floor(std::atof(value_str.c_str())/mm_per_click_y) * stepsPerClickY - autoStepsY;
+  temp = floor(std::atof(value_str.c_str())/mm_per_click_y) * stepsPerClickY;
+  autoStepsVecY = temp - autoStepsY;
+  autoStepsY = temp;
 }
 
 //Function to send the interpreted command to the motor control sub-system.
-bool sendMotor()
+bool sendMotor(int z, int x, int y)
 {
   //First send data.
   char buffer[64];
-  snprintf(buffer, sizeof(buffer), "%d, %.4f, %.4f", autoZ, autoStepsX, autoStepsY);
+  snprintf(buffer, sizeof(buffer), "%d, %.4f, %.4f", autoZ, autoStepsVecX, autoStepsVecY);
   motorControl.println(String(buffer));
+  mainHub.println(String(buffer));
 
   //Wait for done confirmation.
+  delay(100);
   while(!(motorControl.available() > 0))
   {
+    delay(1);
   }
 
   String received = motorControl.readStringUntil('\n');
-  received.trim();
 
-  std::istringstream stream(received.c_str());
-  std::string command;
-
-  std::getline(stream, command, ',');
-
-  if(command == "D")
+  if(received[0] == 'D')
   {
+    mainHub.println('D');
     return true;
   }
-  
+
   return false;
 }
 
 void setup() {
   //Setup serial communication.
   mainHub.begin(baudRateESP, SERIAL_8N1, mainHubRx, mainHubTx);
-  cadInterpreter.begin(baudRateESP, cadIntRx, cadIntTx);
-  motorControl.begin(baudRatePIC, motorContRx, motorContTx);
+  // Serial.begin(baudRateESP);
+  cadInterpreter.begin(baudRateESP, SERIAL_8N1, cadIntRx, cadIntTx);
+  motorControl.begin(baudRatePIC, SERIAL_8N1, motorContRx, motorContTx);
 }
 
 void loop() {
@@ -193,11 +212,12 @@ void loop() {
       y_cw_clicks = 0;
 
       //Reset current conversion rates.
-      mm_per_click_x = 1.7;
-      mm_per_click_y = 1.7;
+      mm_per_click_x = 1;
+      mm_per_click_y = 1;
 
       calibrating = true;
       cal_width = true;
+      moving_manually = true;
     }
     else if(command == "W") //Get board width.
     {
@@ -221,7 +241,13 @@ void loop() {
     }
     else if(command == "A") //Check to see if we have initiated automatic mode.
     {
-      sending_auto = true;
+      sending_auto = !sending_auto;
+      autoStepsX = 0;
+      autoStepsY = 0;
+    }
+    else if(command == "M")
+    {
+      moving_manually = !moving_manually;
     }
   }
 
@@ -231,18 +257,62 @@ void loop() {
     if(cal_width)
     {
       updateEncoder(xAxisA, xAxisB, x_cw_clicks, x_ccw_clicks, xStateA, xStateB);
+      // Serial.println(x_cw_clicks);
     }
     else if(cal_height)
     {
       updateEncoder(yAxisA, yAxisB, y_cw_clicks, y_ccw_clicks, yStateA, yStateB);
+      // Serial.println(y_cw_clicks);
     }
   }
   else if(sending_auto)
   {
     //Get next command from automatic subsystem.
     receiveAuto();
+    // Serial.print(String(autoZ) + " ");
+    // Serial.print(String(autoStepsVecX) + " ");
+    // Serial.println(autoStepsVecY);
 
     //Send command to motor subsystem.
-    sendMotor();
+    if(sending_auto)
+    {
+      sendMotor(autoZ, autoStepsVecX, autoStepsVecY);
+    }
+
+    // delay(100);
+    // if(motorControl.available() > 0)
+    // {
+    //   String receivedMotor = motorControl.readStringUntil('\n');
+    //   mainHub.println(receivedMotor);
+    // }
+  }
+
+  if(moving_manually && !sending_auto)
+  {
+    int stepsX = 0;
+    int stepsY = 0;
+
+   cadInterpreter.println("9, 0");
+   delay(1);
+   if(cadInterpreter.available() > 0)
+   {
+      String received = cadInterpreter.readStringUntil('\n');
+      received.trim();
+
+      std::istringstream stream(received.c_str());
+      std::string value_str;
+
+      // Serial.println(received);
+
+      std::getline(stream, value_str, ',');
+      stepsX = std::atof(value_str.c_str());
+
+      std::getline(stream, value_str, ',');
+      stepsY = std::atof(value_str.c_str());
+
+      sendMotor(0, stepsX, stepsY);
+   } 
+
+    // delay(500);
   }
 }
