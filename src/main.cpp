@@ -129,6 +129,7 @@ void receiveAuto()
   if(received[0] == 'D')
   {
     sending_auto = false;
+    mainHub.println("P");
     return;
   }
 
@@ -166,6 +167,7 @@ bool sendMotor(int z, int x, int y)
   {
     delay(1);
   }
+  delay(10);
 
   String received = motorControl.readStringUntil('\n');
 
